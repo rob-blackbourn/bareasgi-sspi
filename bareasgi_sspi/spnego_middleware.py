@@ -95,6 +95,23 @@ class SPNEGOMiddleware:
             session_duration: timedelta = timedelta(hours=1),
             forbid_unauthenticated: bool = True
     ) -> None:
+        """Initialise the SPNEGO middleware.
+
+        Args:
+            app (ASGI3Application): The AGI application.
+            protocol (Literal[b&#39;Negotiate&#39;, b&#39;NTLM&#39;], optional):
+                The protocol. Defaults to b'Negotiate'.
+            service (str, optional): The service. Defaults to 'HTTP'.
+            hostname (Optional[str], optional): The hostname. Defaults to None.
+            service_principal (Optional[str], optional): The service principal
+                (overrides service and hostname). Defaults to None.
+            session_duration (timedelta, optional): The duration of a session
+                before re-authentication is performed. Defaults to
+                `timedelta(hours=1)`.
+            forbid_unauthenticated (bool, optional): If true, 403 (Forbidden) is
+                sent if authentication fails. If false the request is handled,
+                but no authentication details are added. Defaults to True.
+        """
         self._app = app
         self.protocol = protocol
         self.forbid_unauthenticated = forbid_unauthenticated
@@ -167,6 +184,12 @@ class SPNEGOMiddleware:
             scope['client'],
             self.protocol
         )
+
+        # To request authentication a message with status 401 (Unauthorized)
+        # is sent with the "www-authenticate" header set to the desired
+        # protocol (e.g. Negotiate or NTLM). The client will then respond with
+        # a message containing the "authorization" header starting with the
+        # protocol that the client has chosen.
         body = b'Unauthenticated'
         await self._send_response(
             send,
@@ -189,14 +212,20 @@ class SPNEGOMiddleware:
             receive: ASGIHTTPReceiveCallable,
             send: ASGIHTTPSendCallable
     ) -> None:
-        if not authorization:
-            raise Exception("Missing 'authorization' header")
+        # The authentication handshake involves an exchange of tokens.
 
+        if not authorization:
+            raise RuntimeError("Missing 'authorization' header")
+
+        # Feed the client token into the authenticator. This is a two step
+        # process.
         in_token = base64.b64decode(authorization[len(self.protocol)+1:])
         server_auth = session['server_auth']
         buf = server_auth.step(in_token)
 
         if server_auth.complete:
+            # This is the second step. The handshake has succeeded and the
+            # request can be passed on to the downstream handlers.
             LOGGER.debug(
                 "Authentication succeeded for client %s using %s as user %s",
                 scope['client'],
@@ -214,6 +243,8 @@ class SPNEGOMiddleware:
             return
 
         if buf:
+            # This is the first step. The client has sent an acceptable token
+            # and the server responds with its own as another 401 response.
             LOGGER.debug(
                 "Sending challenge for client %s using %s",
                 scope['client'],
@@ -233,7 +264,7 @@ class SPNEGOMiddleware:
             )
             return
 
-        raise Exception("Handshake failed")
+        raise RuntimeError("Handshake failed")
 
     async def _process_authentication(
             self,
@@ -298,17 +329,21 @@ class SPNEGOMiddleware:
             receive: ASGIHTTPReceiveCallable,
             send: ASGIHTTPSendCallable
     ) -> None:
-        session, headers = self._session_manager.get_session(scope)
+        try:
+            session, headers = self._session_manager.get_session(scope)
 
-        if session['status'] is None:
-            await self._request_authentication(session, headers, scope, send)
-        elif session['status'] == 'requested':
-            await self._process_authentication(session, scope, receive, send)
-        elif session['status'] == 'accepted':
-            await self._handle_request(session, scope, receive, send)
-        elif session['status'] == 'rejected':
-            await self._handle_rejected(session, scope, receive, send)
-        else:
+            if session['status'] is None:
+                await self._request_authentication(session, headers, scope, send)
+            elif session['status'] == 'requested':
+                await self._process_authentication(session, scope, receive, send)
+            elif session['status'] == 'accepted':
+                await self._handle_request(session, scope, receive, send)
+            elif session['status'] == 'rejected':
+                await self._handle_rejected(session, scope, receive, send)
+            else:
+                raise RuntimeError("Unhandled session status")
+        except:  # pylint: disable=bare-except
+            LOGGER.exception("Failed to authenticate")
             await self._send_internal_server_error(scope, send)
 
     async def __call__(
