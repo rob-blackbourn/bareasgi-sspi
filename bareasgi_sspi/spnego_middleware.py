@@ -352,11 +352,12 @@ class SPNEGOMiddleware:
             receive: ASGIReceiveCallable,
             send: ASGISendCallable
     ) -> None:
-        if scope['type'] != 'http':
-            await self._app(scope, receive, send)
-        else:
+        if scope['type'] == 'http':
+            # Only use for the http connect event.
             await self._process_http(
                 cast(HTTPScope, scope),
                 cast(ASGIHTTPReceiveCallable, receive),
                 cast(ASGIHTTPSendCallable, send)
             )
+        else:
+            await self._app(scope, receive, send)
