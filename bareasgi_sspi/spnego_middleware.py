@@ -1,12 +1,10 @@
 """Middleware for SSPI using spnego"""
 
 import base64
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import logging
-import secrets
 import socket
 from typing import (
-    Dict,
     List,
     Literal,
     Optional,
@@ -24,75 +22,51 @@ from asgi_typing import (
     ASGIHTTPSendCallable,
     ASGI3Application
 )
-from bareutils import encode_set_cookie, header, response_code
+from bareutils import header, response_code
 import spnego
+
+from .session_manager import SessionManager, Session
 
 LOGGER = logging.getLogger(__name__)
 
 
 class SSPIDetails(TypedDict):
+    """The details available from SPNEGO"""
     client_principal: str
     negotiated_protocol: str
     protocol: str
     spn: str
 
 
-class SSPISession(TypedDict):
+class SSPISession(Session):
+    """The data to store for a session"""
     server_auth: spnego.ContextProxy
     status: Optional[Literal['requested', 'accepted', 'rejected']]
-    expiry: datetime
     sspi: Optional[SSPIDetails]
 
 
-class SPNEGOMiddleware:
+class SPNEGOSessionManager(SessionManager[SSPISession]):
+    """The session manager implementation for SPNEGO"""
 
     def __init__(
             self,
-            app: ASGI3Application,
-            *,
-            auth_type: Literal[b'Negotiate', b'NTLM'] = b'Negotiate',
-            service: str = 'HTTP',
-            hostname: Optional[str] = None,
-            service_principal: Optional[str] = None,
-            session_duration: timedelta = timedelta(hours=1),
-            forbid_unauthenticated: bool = True
+            session_duration: timedelta,
+            hostname: str,
+            service: str,
+            protocol: str
     ) -> None:
-        self.app = app
-        self.sessions: Dict[bytes, SSPISession] = {}
-        self.session_cookie_name = secrets.token_urlsafe().encode('ascii')
-        self.auth_type = auth_type
-        self.session_duration = session_duration
-        self.forbid_unauthenticated = forbid_unauthenticated
+        super().__init__(session_duration)
+        self.hostname = hostname
+        self.service = service
+        self.protocol = protocol
 
-        if service_principal is not None:
-            self._service_name, self._hostname = service_principal.split('@')
-        else:
-            self._service_name = service
-            self._hostname = hostname if hostname is not None else socket.gethostname()
-
-    def _get_session_key_from_cookie(
-        self,
-        scope: HTTPScope
-    ) -> Optional[bytes]:
-        cookies = header.cookie(scope['headers'])
-        session_cookie = cookies.get(self.session_cookie_name)
-        if not session_cookie:
-            return None
-
-        return session_cookie[0]
-
-    def _make_new_session_key(self) -> bytes:
-        return secrets.token_hex(32).encode('ascii')
-
-    def _make_session(self, now: datetime) -> Tuple[SSPISession, bytes]:
-        session_key = self._make_new_session_key()
-
+    def create_session(self, expiry: datetime) -> SSPISession:
         server_auth = spnego.server(
-            hostname=self._hostname,
-            service=self._service_name,
-            protocol=self.auth_type.decode('ascii').lower()
+            hostname=self.hostname,
+            service=self.service,
+            protocol=self.protocol.lower()
         )
-        expiry = now + self.session_duration
+
         session: SSPISession = {
             'server_auth': server_auth,
             'expiry': expiry,
@@ -100,32 +74,42 @@ class SPNEGOMiddleware:
             'sspi': None
         }
 
-        set_cookie = encode_set_cookie(
-            self.session_cookie_name,
-            session_key,
-            expires=expiry
-        )
+        return session
 
-        return session, set_cookie
 
-    def _get_session(
+class SPNEGOMiddleware:
+    """ASGI middleware for authenticating with SSPI using SPNEGO
+
+    Authentication data is stored in the scope `"extensions"` property under
+    `"sspi"`.
+    """
+
+    def __init__(
             self,
-            scope: HTTPScope
-    ) -> Tuple[SSPISession, List[Tuple[bytes, bytes]]]:
-        session_key = self._get_session_key_from_cookie(scope)
-        headers: List[Tuple[bytes, bytes]] = []
+            app: ASGI3Application,
+            *,
+            protocol: Literal[b'Negotiate', b'NTLM'] = b'Negotiate',
+            service: str = 'HTTP',
+            hostname: Optional[str] = None,
+            service_principal: Optional[str] = None,
+            session_duration: timedelta = timedelta(hours=1),
+            forbid_unauthenticated: bool = True
+    ) -> None:
+        self._app = app
+        self.protocol = protocol
+        self.forbid_unauthenticated = forbid_unauthenticated
 
-        now = datetime.now(timezone.utc)
-        session = (
-            self.sessions.get(session_key)
-            if session_key is not None
-            else None
+        if service_principal is not None:
+            service, hostname = service_principal.split('@')
+        elif hostname is None:
+            hostname = socket.gethostname()
+
+        self._session_manager = SPNEGOSessionManager(
+            session_duration,
+            hostname,
+            service,
+            self.protocol.decode('ascii')
         )
-        if session is None or session['expiry'] < now:
-            session, set_cookie = self._make_session(now)
-            headers.append((b'set-cookie', set_cookie))
-
-        return session, headers
 
     async def _send_response(
             self,
@@ -165,7 +149,7 @@ class SPNEGOMiddleware:
             send: ASGIHTTPSendCallable
     ) -> None:
         scope['extensions']['sspi'] = session['sspi']  # type: ignore
-        await self.app(
+        await self._app(
             cast(Scope, scope),
             cast(ASGIReceiveCallable, receive),
             cast(ASGISendCallable, send)
@@ -181,14 +165,14 @@ class SPNEGOMiddleware:
         LOGGER.debug(
             "Requesting authentication for client %s using %s",
             scope['client'],
-            self.auth_type
+            self.protocol
         )
         body = b'Unauthenticated'
         await self._send_response(
             send,
             response_code.UNAUTHORIZED,
             [
-                (b'www-authenticate', self.auth_type),
+                (b'www-authenticate', self.protocol),
                 (b'content-type', b'text/plain'),
                 (b'content-length', str(len(body)).encode('ascii')),
                 * headers
@@ -208,7 +192,7 @@ class SPNEGOMiddleware:
         if not authorization:
             raise Exception("Missing 'authorization' header")
 
-        in_token = base64.b64decode(authorization[len(self.auth_type)+1:])
+        in_token = base64.b64decode(authorization[len(self.protocol)+1:])
         server_auth = session['server_auth']
         buf = server_auth.step(in_token)
 
@@ -216,7 +200,7 @@ class SPNEGOMiddleware:
             LOGGER.debug(
                 "Authentication succeeded for client %s using %s as user %s",
                 scope['client'],
-                self.auth_type,
+                self.protocol,
                 server_auth.client_principal
             )
             session['status'] = 'accepted'
@@ -233,9 +217,9 @@ class SPNEGOMiddleware:
             LOGGER.debug(
                 "Sending challenge for client %s using %s",
                 scope['client'],
-                self.auth_type
+                self.protocol
             )
-            out_token = self.auth_type + b" " + base64.b64encode(buf)
+            out_token = self.protocol + b" " + base64.b64encode(buf)
             body = b'Unauthorized'
             await self._send_response(
                 send,
@@ -271,7 +255,7 @@ class SPNEGOMiddleware:
             LOGGER.exception(
                 "Failed to authenticate for client %s using %s",
                 scope['client'],
-                self.auth_type
+                self.protocol
             )
             session['status'] = 'rejected'
             await self._handle_rejected(session, scope, receive, send)
@@ -314,7 +298,7 @@ class SPNEGOMiddleware:
             receive: ASGIHTTPReceiveCallable,
             send: ASGIHTTPSendCallable
     ) -> None:
-        session, headers = self._get_session(scope)
+        session, headers = self._session_manager.get_session(scope)
 
         if session['status'] is None:
             await self._request_authentication(session, headers, scope, send)
@@ -334,7 +318,7 @@ class SPNEGOMiddleware:
             send: ASGISendCallable
     ) -> None:
         if scope['type'] != 'http':
-            await self.app(scope, receive, send)
+            await self._app(scope, receive, send)
         else:
             await self._process_http(
                 cast(HTTPScope, scope),
