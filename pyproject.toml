@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "bareasgi-sspi"
-version = "4.0.0-rc1"
+version = "4.0.0-alpha0"
 description = "ASGI middleware for SSPI"
 authors = ["Rob Blackbourn <rob.blackbourn@gmail.com>"]
 license = "Apache-2.0"
