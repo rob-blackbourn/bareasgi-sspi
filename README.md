@@ -14,7 +14,7 @@ pip install bareasgi-sspi
 
 ## Usage
 
-The following program demonstrates the usage with the
+The following program uses the
 [Hypercorn](https://pgjones.gitlab.io/hypercorn/)
 ASGI server, and the
 [bareASGI](https://github.com/rob-blackbourn/bareASGI)
