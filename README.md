@@ -14,7 +14,11 @@ pip install bareasgi-sspi
 
 ## Usage
 
-The following program demonstrates the usage.
+The following program demonstrates the usage with
+[Hypercorn](https://pgjones.gitlab.io/hypercorn/)
+and the
+[bareASGI](https://github.com/rob-blackbourn/bareASGI)
+framework.
 
 ```python
 import asyncio
