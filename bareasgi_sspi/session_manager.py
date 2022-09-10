@@ -86,6 +86,7 @@ class SessionManager(Generic[T], metaclass=ABCMeta):
         expiry = now + self.session_duration
 
         session = self.create_session(expiry)
+        self._sessions[session_key] = session
 
         set_cookie = encode_set_cookie(
             self._session_cookie_name,
