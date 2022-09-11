@@ -158,7 +158,7 @@ class SPNEGOMiddleware:
             b'Forbidden'
         )
 
-    async def _handle_request(
+    async def _handle_accepted(
             self,
             session: SSPISession,
             scope: HTTPScope,
@@ -188,19 +188,16 @@ class SPNEGOMiddleware:
         # To request authentication a message with status 401 (Unauthorized)
         # is sent with the "www-authenticate" header set to the desired
         # protocol (e.g. Negotiate or NTLM). The client will then respond with
-        # a message containing the "authorization" header starting with the
-        # protocol that the client has chosen.
-        body = b'Unauthenticated'
+        # a message containing the "authorization" header. This header will
+        # return the auth-scheme that the client has chosen, and a token.
         await self._send_response(
             send,
             response_code.UNAUTHORIZED,
             [
                 (b'www-authenticate', self.protocol),
-                (b'content-type', b'text/plain'),
-                (b'content-length', str(len(body)).encode('ascii')),
-                * headers
+                *headers
             ],
-            body
+            b'Unauthenticated'
         )
         session['status'] = 'requested'
 
@@ -239,7 +236,7 @@ class SPNEGOMiddleware:
                 'negotiated_protocol': server_auth.negotiated_protocol,
                 'spn': server_auth.spn
             }
-            await self._handle_request(session, scope, receive, send)
+            await self._handle_accepted(session, scope, receive, send)
             return
 
         if buf:
@@ -266,7 +263,7 @@ class SPNEGOMiddleware:
 
         raise RuntimeError("Handshake failed")
 
-    async def _process_authentication(
+    async def _handle_requested(
             self,
             session: SSPISession,
             scope: HTTPScope,
@@ -301,7 +298,7 @@ class SPNEGOMiddleware:
         if self.forbid_unauthenticated:
             self._send_forbidden(send)
         else:
-            self._handle_request(session, scope, receive, send)
+            self._handle_accepted(session, scope, receive, send)
 
     async def _send_internal_server_error(
             self,
@@ -335,13 +332,14 @@ class SPNEGOMiddleware:
             if session['status'] is None:
                 await self._request_authentication(session, headers, scope, send)
             elif session['status'] == 'requested':
-                await self._process_authentication(session, scope, receive, send)
+                await self._handle_requested(session, scope, receive, send)
             elif session['status'] == 'accepted':
-                await self._handle_request(session, scope, receive, send)
+                await self._handle_accepted(session, scope, receive, send)
             elif session['status'] == 'rejected':
                 await self._handle_rejected(session, scope, receive, send)
             else:
                 raise RuntimeError("Unhandled session status")
+
         except:  # pylint: disable=bare-except
             LOGGER.exception("Failed to authenticate")
             await self._send_internal_server_error(scope, send)

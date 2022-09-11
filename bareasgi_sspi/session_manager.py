@@ -32,7 +32,18 @@ T = TypeVar('T', bound=Session)
 
 
 class SessionManager(Generic[T], metaclass=ABCMeta):
-    """The base class for session managers"""
+    """The base class for session managers
+
+    This is a cookie based session manager. When a client connects the cookie
+    headers are checked to see if they contain a session cookie.
+
+    If the session cookie doesn't exist a set-cookie header is added to the
+    response headers containing a unique value to use as a session key. This
+    cookie will then be sent by the client in all subsequent requests.
+
+    If the session cookie is found the value of the cookie is used to access
+    a session cache.
+    """
 
     def __init__(self, session_duration: timedelta) -> None:
         """Initialize the session manager.
@@ -80,7 +91,7 @@ class SessionManager(Generic[T], metaclass=ABCMeta):
             now (datetime): The current time in UTC.
 
         Returns:
-            Tuple[T, bytes]: The session data and the set-cookie data.
+            Tuple[T, bytes]: The session data and the set-cookie value.
         """
         session_key = self._make_new_session_key()
         expiry = now + self.session_duration
