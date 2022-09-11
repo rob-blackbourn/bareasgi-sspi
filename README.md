@@ -81,12 +81,9 @@ Optional arguments include:
 * `protocol` (`bytes`): Either `b"Negotiate"` or `b"NTLM"` (for systems not part of a domain).
 * `service` (`str`): The SPN service. Defaults to `"HTTP"`.
 * `hostname` (`str`, optional): The hostname. Defaults to he result of `socket.gethostname()`.
-* `service_principal` (`str`, optional): The service principal.
 * `session_duration` (`timedelta`, optional): The duration of a session. Defaults to 1 hour.
 * `forbid_unauthenticated` (`bool`): If true, and authentication fails, send 403 (Forbidden). Otherwise handle the request unauthenticated.
 * `context_key` (`str`, optional): The key used in the request context. Defaults to `sspi`.
-
-If `service_principal` if specified, it supersedes `service` and `hostname`.
 
 ### Results
 
