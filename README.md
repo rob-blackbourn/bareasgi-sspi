@@ -1,6 +1,11 @@
 # bareASGI-sspi
 
-ASGI middleware for the bareASGI framework providing SSPI authentication on Windows.
+[ASGI](https://asgi.readthedocs.io/en/latest/index.html) middleware
+for the [bareASGI](https://github.com/rob-blackbourn/bareASGI) framework
+providing [SSPI](https://en.wikipedia.org/wiki/Security_Support_Provider_Interface) authentication
+on Windows.
+
+The implementation uses the [pyspnego](https://github.com/jborean93/pyspnego) package.
 
 ## Installation
 
@@ -73,7 +78,7 @@ if __name__ == '__main__':
 
 Optional arguments include:
 
-* `protocol` (`bytes`): Either `b"Negotiate"` or `b"NTLM"`.
+* `protocol` (`bytes`): Either `b"Negotiate"` or `b"NTLM"` (for systems not part of a domain).
 * `service` (`str`): The SPN service. Defaults to `"HTTP"`.
 * `hostname` (`str`, optional): The hostname. Defaults to he result of `socket.gethostname()`.
 * `service_principal` (`str`, optional): The service principal.

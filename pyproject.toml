@@ -1,7 +1,24 @@
 [tool.poetry]
 name = "bareasgi-sspi"
 version = "4.0.0-rc1"
-description = "ASGI middleware for SSPI"
+description = "bareASGI middleware for SSPI"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Environment :: Win32 (MS Windows)",
+    "Framework :: AsyncIO",
+    "Framework :: bareASGI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Internet :: WWW/HTTP :: ASGI :: Middleware",
+    "Topic :: Security",
+    "Typing :: Typed"
+]
 authors = ["Rob Blackbourn <rob.blackbourn@gmail.com>"]
 license = "Apache-2.0"
 readme = "README.md"
@@ -13,15 +30,10 @@ repository = "https://github.com/rob-blackbourn/bareASGI-SSPI"
 [tool.poetry.dependencies]
 python = "^3.8"
 bareasgi = "^4.1.0"
-bareutils = "^4.0.1"
 pyspnego = "^0.6.0"
-jetblack-asgi-typing = "^0.4.0"
 
 [tool.poetry.dev-dependencies]
 autopep8 = "^1.5.4"
-pytest = "^5.0"
-pytest-asyncio = "^0.10"
-pytest-runner = "^5.1"
 pylint = "^2.8"
 mypy = "^0.910"
 hypercorn = "^0.14.3"
