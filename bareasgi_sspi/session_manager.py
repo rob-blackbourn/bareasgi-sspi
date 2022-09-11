@@ -15,9 +15,7 @@ from typing import (
     cast
 )
 
-from asgi_typing import (
-    HTTPScope,
-)
+from bareasgi import HttpRequest
 from bareutils import encode_set_cookie, header
 
 LOGGER = logging.getLogger(__name__)
@@ -61,9 +59,9 @@ class SessionManager(Generic[T], metaclass=ABCMeta):
 
     def _get_session_key_from_cookie(
         self,
-        scope: HTTPScope
+        request: HttpRequest
     ) -> Optional[bytes]:
-        cookies = header.cookie(scope['headers'])
+        cookies = header.cookie(request.scope['headers'])
         session_cookie = cookies.get(
             self._session_cookie_name,
             [None]  # type: ignore
@@ -123,12 +121,12 @@ class SessionManager(Generic[T], metaclass=ABCMeta):
 
     def get_session(
             self,
-            scope: HTTPScope
+            request: HttpRequest
     ) -> Tuple[T, List[Tuple[bytes, bytes]]]:
         """Get an existing session, or create a new one.
 
         Args:
-            scope (HTTPScope): The ASGI HTTP scope.
+            request (HttpRequest): The HTTP request.
 
         Returns:
             Tuple[T, List[Tuple[bytes, bytes]]]: The session and an headers to
@@ -138,7 +136,7 @@ class SessionManager(Generic[T], metaclass=ABCMeta):
 
         self._expire_sessions(now)
 
-        session_key = self._get_session_key_from_cookie(scope)
+        session_key = self._get_session_key_from_cookie(request)
         headers: List[Tuple[bytes, bytes]] = []
 
         session = (

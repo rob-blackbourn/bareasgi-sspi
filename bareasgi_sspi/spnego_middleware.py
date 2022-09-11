@@ -9,19 +9,10 @@ from typing import (
     Literal,
     Optional,
     Tuple,
-    TypedDict,
-    cast
+    TypedDict
 )
 
-from asgi_typing import (
-    Scope,
-    HTTPScope,
-    ASGIReceiveCallable,
-    ASGISendCallable,
-    ASGIHTTPReceiveCallable,
-    ASGIHTTPSendCallable,
-    ASGI3Application
-)
+from bareasgi import HttpRequest, HttpRequestCallback, HttpResponse
 from bareutils import header, response_code
 import spnego
 
@@ -86,19 +77,18 @@ class SPNEGOMiddleware:
 
     def __init__(
             self,
-            app: ASGI3Application,
             *,
             protocol: Literal[b'Negotiate', b'NTLM'] = b'Negotiate',
             service: str = 'HTTP',
             hostname: Optional[str] = None,
             service_principal: Optional[str] = None,
             session_duration: timedelta = timedelta(hours=1),
-            forbid_unauthenticated: bool = True
+            forbid_unauthenticated: bool = True,
+            context_key: str = 'sspi'
     ) -> None:
         """Initialise the SPNEGO middleware.
 
         Args:
-            app (ASGI3Application): The AGI application.
             protocol (Literal[b&#39;Negotiate&#39;, b&#39;NTLM&#39;], optional):
                 The protocol. Defaults to b'Negotiate'.
             service (str, optional): The service. Defaults to 'HTTP'.
@@ -111,10 +101,13 @@ class SPNEGOMiddleware:
             forbid_unauthenticated (bool, optional): If true, 403 (Forbidden) is
                 sent if authentication fails. If false the request is handled,
                 but no authentication details are added. Defaults to True.
+            context_key (str, optional): The name of the key that will be used
+                to store the data in the HttpRequest context.
+                Defaults to 'sspi'.
         """
-        self._app = app
         self.protocol = protocol
         self.forbid_unauthenticated = forbid_unauthenticated
+        self.context_key = context_key
 
         if service_principal is not None:
             service, hostname = service_principal.split('@')
@@ -128,60 +121,38 @@ class SPNEGOMiddleware:
             self.protocol.decode('ascii')
         )
 
-    async def _send_response(
-            self,
-            send: ASGIHTTPSendCallable,
-            status: int,
-            headers: List[Tuple[bytes, bytes]],
-            body: bytes
-    ) -> None:
-        await send({
-            'type': 'http.response.start',
-            'status': status,
-            'headers': [
-                (b'content-type', b'text/plain'),
-                (b'content-length', str(len(body)).encode('ascii')),
-                *headers
-            ]
-        })
-        await send({
-            'type': 'http.response.body',
-            'body': body,
-            'more_body': False
-        })
+    def _forbidden(self) -> HttpResponse:
+        return HttpResponse.from_text(
+            'Forbidden',
+            status=response_code.FORBIDDEN
+        )
 
-    async def _send_forbidden(self, send: ASGIHTTPSendCallable) -> None:
-        await self._send_response(
-            send,
-            response_code.FORBIDDEN,
-            [],
-            b'Forbidden'
+    def _unauthorized(self, headers: List[Tuple[bytes, bytes]]) -> HttpResponse:
+        return HttpResponse.from_text(
+            "Unauthorized",
+            headers=headers,
+            status=response_code.UNAUTHORIZED
         )
 
     async def _handle_accepted(
             self,
             session: SSPISession,
-            scope: HTTPScope,
-            receive: ASGIHTTPReceiveCallable,
-            send: ASGIHTTPSendCallable
-    ) -> None:
-        scope['extensions']['sspi'] = session['sspi']  # type: ignore
-        await self._app(
-            cast(Scope, scope),
-            cast(ASGIReceiveCallable, receive),
-            cast(ASGISendCallable, send)
-        )
+            request: HttpRequest,
+            handler: HttpRequestCallback
+    ) -> HttpResponse:
+        # Store the result of the authentication in the request context.
+        request.context[self.context_key] = session['sspi']
+        return await handler(request)
 
-    async def _request_authentication(
+    def _request_authentication(
             self,
             session: SSPISession,
             headers: List[Tuple[bytes, bytes]],
-            scope: HTTPScope,
-            send: ASGIHTTPSendCallable
-    ) -> None:
+            request: HttpRequest
+    ) -> HttpResponse:
         LOGGER.debug(
             "Requesting authentication for client %s using %s",
-            scope['client'],
+            request.scope['client'],
             self.protocol
         )
 
@@ -190,25 +161,19 @@ class SPNEGOMiddleware:
         # protocol (e.g. Negotiate or NTLM). The client will then respond with
         # a message containing the "authorization" header. This header will
         # return the auth-scheme that the client has chosen, and a token.
-        await self._send_response(
-            send,
-            response_code.UNAUTHORIZED,
-            [
-                (b'www-authenticate', self.protocol),
-                *headers
-            ],
-            b'Unauthenticated'
-        )
         session['status'] = 'requested'
+        return self._unauthorized([
+            (b'www-authenticate', self.protocol),
+            *headers
+        ])
 
     async def _authenticate(
             self,
             authorization: Optional[bytes],
             session: SSPISession,
-            scope: HTTPScope,
-            receive: ASGIHTTPReceiveCallable,
-            send: ASGIHTTPSendCallable
-    ) -> None:
+            request: HttpRequest,
+            handler: HttpRequestCallback
+    ) -> HttpResponse:
         # The authentication handshake involves an exchange of tokens.
 
         if not authorization:
@@ -225,7 +190,7 @@ class SPNEGOMiddleware:
             # request can be passed on to the downstream handlers.
             LOGGER.debug(
                 "Authentication succeeded for client %s using %s as user %s",
-                scope['client'],
+                request.scope['client'],
                 self.protocol,
                 server_auth.client_principal
             )
@@ -236,126 +201,77 @@ class SPNEGOMiddleware:
                 'negotiated_protocol': server_auth.negotiated_protocol,
                 'spn': server_auth.spn
             }
-            await self._handle_accepted(session, scope, receive, send)
-            return
+            return await self._handle_accepted(session, request, handler)
 
         if buf:
             # This is the first step. The client has sent an acceptable token
             # and the server responds with its own as another 401 response.
             LOGGER.debug(
                 "Sending challenge for client %s using %s",
-                scope['client'],
+                request.scope['client'],
                 self.protocol
             )
             out_token = self.protocol + b" " + base64.b64encode(buf)
-            body = b'Unauthorized'
-            await self._send_response(
-                send,
-                response_code.UNAUTHORIZED,
-                [
-                    (b'www-authenticate', out_token),
-                    (b'content-type', b'text/plain'),
-                    (b'content-length', str(len(body)).encode('ascii'))
-                ],
-                body
-            )
-            return
+            return self._unauthorized([(b'www-authenticate', out_token)])
 
         raise RuntimeError("Handshake failed")
 
     async def _handle_requested(
             self,
             session: SSPISession,
-            scope: HTTPScope,
-            receive: ASGIHTTPReceiveCallable,
-            send: ASGIHTTPSendCallable
-    ) -> None:
-        authorization = header.find(b'authorization', scope['headers'])
+            request: HttpRequest,
+            handler: HttpRequestCallback
+    ) -> HttpResponse:
+        authorization = header.find(b'authorization', request.scope['headers'])
         try:
-            await self._authenticate(
+            return await self._authenticate(
                 authorization,
                 session,
-                scope,
-                receive,
-                send
+                request,
+                handler
             )
         except:  # pylint: disable=bare-except
             LOGGER.exception(
                 "Failed to authenticate for client %s using %s",
-                scope['client'],
+                request.scope['client'],
                 self.protocol
             )
             session['status'] = 'rejected'
-            await self._handle_rejected(session, scope, receive, send)
+            return await self._handle_rejected(session, request, handler)
 
     async def _handle_rejected(
             self,
             session: SSPISession,
-            scope: HTTPScope,
-            receive: ASGIHTTPReceiveCallable,
-            send: ASGIHTTPSendCallable
-    ) -> None:
+            request: HttpRequest,
+            handler: HttpRequestCallback
+    ) -> HttpResponse:
         if self.forbid_unauthenticated:
-            await self._send_forbidden(send)
+            return self._forbidden()
         else:
-            await self._handle_accepted(session, scope, receive, send)
+            return await self._handle_accepted(session, request, handler)
 
-    async def _send_internal_server_error(
+    async def __call__(
             self,
-            scope: HTTPScope,
-            send: ASGIHTTPSendCallable
-    ) -> None:
-        LOGGER.debug(
-            "Failed to handle message for client %s",
-            scope['client']
-        )
-        body = b'Internal Server Error'
-        await self._send_response(
-            send,
-            response_code.INTERNAL_SERVER_ERROR,
-            [
-                (b'content-type', b'text/plain'),
-                (b'content-length', str(len(body)).encode('ascii'))
-            ],
-            body
-        )
-
-    async def _process_http(
-            self,
-            scope: HTTPScope,
-            receive: ASGIHTTPReceiveCallable,
-            send: ASGIHTTPSendCallable
-    ) -> None:
+            request: HttpRequest,
+            handler: HttpRequestCallback
+    ) -> HttpResponse:
         try:
-            session, headers = self._session_manager.get_session(scope)
+            session, headers = self._session_manager.get_session(request)
 
             if session['status'] is None:
-                await self._request_authentication(session, headers, scope, send)
+                return self._request_authentication(session, headers, request)
             elif session['status'] == 'requested':
-                await self._handle_requested(session, scope, receive, send)
+                return await self._handle_requested(session, request, handler)
             elif session['status'] == 'accepted':
-                await self._handle_accepted(session, scope, receive, send)
+                return await self._handle_accepted(session, request, handler)
             elif session['status'] == 'rejected':
-                await self._handle_rejected(session, scope, receive, send)
+                return await self._handle_rejected(session, request, handler)
             else:
                 raise RuntimeError("Unhandled session status")
 
         except:  # pylint: disable=bare-except
             LOGGER.exception("Failed to authenticate")
-            await self._send_internal_server_error(scope, send)
-
-    async def __call__(
-            self,
-            scope: Scope,
-            receive: ASGIReceiveCallable,
-            send: ASGISendCallable
-    ) -> None:
-        if scope['type'] == 'http':
-            # Only use for the http connect event.
-            await self._process_http(
-                cast(HTTPScope, scope),
-                cast(ASGIHTTPReceiveCallable, receive),
-                cast(ASGIHTTPSendCallable, send)
+            return HttpResponse.from_text(
+                "Internal Server Error",
+                status=response_code.INTERNAL_SERVER_ERROR,
             )
-        else:
-            await self._app(scope, receive, send)
