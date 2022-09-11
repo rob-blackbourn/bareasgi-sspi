@@ -296,9 +296,9 @@ class SPNEGOMiddleware:
             send: ASGIHTTPSendCallable
     ) -> None:
         if self.forbid_unauthenticated:
-            self._send_forbidden(send)
+            await self._send_forbidden(send)
         else:
-            self._handle_accepted(session, scope, receive, send)
+            await self._handle_accepted(session, scope, receive, send)
 
     async def _send_internal_server_error(
             self,
