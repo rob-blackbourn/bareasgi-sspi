@@ -1,8 +1,6 @@
 # bareASGI-sspi
 
-ASGI middleware for SSPI authentication on Windows.
-
-This is not specific to a particular ASGI framework or server.
+ASGI middleware for the bareASGI framework providing SSPI authentication on Windows.
 
 ## Installation
 
@@ -23,46 +21,48 @@ ASGI framework.
 ```python
 import asyncio
 import logging
+from typing import Optional
 
 from bareasgi import Application, HttpRequest, HttpResponse
 from bareutils import text_writer
 from hypercorn import Config
 from hypercorn.asyncio import serve
 
-from bareasgi_sspi.spnego_middleware import SPNEGOMiddleware, SSPIDetails
+from bareasgi_sspi import SPNEGOMiddleware, SSPIDetails
 
 # A callback to display the results of the SSPI middleware.
 async def http_request_callback(request: HttpRequest) -> HttpResponse:
-    # Get the details from scope['extensions']['sspi']. Note if
+    # Get the details from the request context request['sspi']. Note if
     # authentication failed this might be absent or empty.
-    extensions = request.scope.get('extensions', {})
-    sspi_details = extensions.get('sspi', {})
-    client_principal = sspi_details.get('client_principal', 'unknown')
-
-    message = f"Authenticated as '{client_principal}'"
-
+    sspi: Optional[SSPIDetails] = request.context.get('sspi')
+    client_principal = (
+        sspi['client_principal']
+        if sspi is not None
+        else 'unknown'
+    )
     return HttpResponse(
         200,
         [(b'content-type', b'text/plain')],
-        text_writer(message)
+        text_writer(f"Authenticated as '{client_principal}'")
     )
+
 
 async def main_async():
-    # Make the ASGI application.
-    app = Application()
-    app.http_router.add({'GET'}, '/', http_request_callback)
-
-    # Wrap the application with the middleware.
-    wrapped_app = SPNEGOMiddleware(
-        app,
-        protocol=b'NTLM',  # NTLM or Negotiate
-        forbid_unauthenticated=True
+    # Create the middleware. Change the protocol from Negotiate to NTLM,
+    # and allow unauthenticated requests to pass through.
+    sspi_middleware = SPNEGOMiddleware(
+        protocol=b'NTLM',
+        forbid_unauthenticated=False
     )
+
+    # Make the ASGI application using the middleware.
+    app = Application(middlewares=[sspi_middleware])
+    app.http_router.add({'GET'}, '/', http_request_callback)
 
     # Start the ASGI server.
     config = Config()
     config.bind = ['localhost:9023']
-    await serve(wrapped_app, config)
+    await serve(app, config)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
@@ -71,22 +71,23 @@ if __name__ == '__main__':
 
 ### Arguments
 
-The `SPNEGOMiddleware` wraps the ASGI application. The first and only
-positional argument is the ASGI application. Optional arguments include:
+Optional arguments include:
 
 * `protocol` (`bytes`): Either `b"Negotiate"` or `b"NTLM"`.
 * `service` (`str`): The SPN service. Defaults to `"HTTP"`.
-* `hostname` (`str`, optional): The hostname. Defaults to `gethostname`.
+* `hostname` (`str`, optional): The hostname. Defaults to he result of `socket.gethostname()`.
 * `service_principal` (`str`, optional): The service principal.
 * `session_duration` (`timedelta`, optional): The duration of a session. Defaults to 1 hour.
 * `forbid_unauthenticated` (`bool`): If true, and authentication fails, send 403 (Forbidden). Otherwise handle the request unauthenticated.
+* `context_key` (`str`, optional): The key used in the request context. Defaults to `sspi`.
 
 If `service_principal` if specified, it supersedes `service` and `hostname`.
 
 ### Results
 
 If the authentication is successful the SSPI details are added to the
-`"extensions"` property of the ASGI scope under the property `"sspi"`.
+`context` dictionary of the HttpRequest object with the key `"sspi"`.
+
 The following properties are set:
 
 * `"client_principal"` (`str`): The username of the client.

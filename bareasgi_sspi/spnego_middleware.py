@@ -1,4 +1,4 @@
-"""Middleware for SSPI using spnego"""
+"""bareASGI middleware for SSPI using spnego"""
 
 import base64
 from datetime import datetime, timedelta

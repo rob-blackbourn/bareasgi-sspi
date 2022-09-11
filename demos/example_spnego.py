@@ -2,22 +2,24 @@
 
 import asyncio
 import logging
-from typing import cast, Optional
+from typing import Optional
 
 from bareasgi import Application, HttpRequest, HttpResponse
 from bareutils import text_writer
 from hypercorn import Config
 from hypercorn.asyncio import serve
 
-from bareasgi_sspi.spnego_middleware import SPNEGOMiddleware, SSPIDetails
+from bareasgi_sspi import SPNEGOMiddleware, SSPIDetails
 
 
+# A callback to display the results of the SSPI middleware.
 async def http_request_callback(request: HttpRequest) -> HttpResponse:
-    extensions = request.scope['extensions'] or {}
-    sspi_details = cast(Optional[SSPIDetails], extensions.get('sspi'))
+    # Get the details from the request context request['sspi']. Note if
+    # authentication failed this might be absent or empty.
+    sspi: Optional[SSPIDetails] = request.context.get('sspi')
     client_principal = (
-        sspi_details['client_principal']
-        if sspi_details is not None
+        sspi['client_principal']
+        if sspi is not None
         else 'unknown'
     )
     return HttpResponse(
@@ -28,18 +30,21 @@ async def http_request_callback(request: HttpRequest) -> HttpResponse:
 
 
 async def main_async():
-    app = Application()
-    app.http_router.add({'GET'}, '/', http_request_callback)
-
-    wrapped_app = SPNEGOMiddleware(
-        app,
-        protocol=b'NTLM',  # NTLM or Negotiate
-        forbid_unauthenticated=True
+    # Create the middleware. Change the protocol from Negotiate to NTLM,
+    # and allow unauthenticated requests to pass through.
+    sspi_middleware = SPNEGOMiddleware(
+        protocol=b'NTLM',
+        forbid_unauthenticated=False
     )
 
+    # Make the ASGI application using the middleware.
+    app = Application(middlewares=[sspi_middleware])
+    app.http_router.add({'GET'}, '/', http_request_callback)
+
+    # Start the ASGI server.
     config = Config()
     config.bind = ['localhost:9023']
-    await serve(wrapped_app, config)
+    await serve(app, config)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
