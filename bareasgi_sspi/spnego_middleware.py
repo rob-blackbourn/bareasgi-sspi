@@ -16,6 +16,13 @@ from bareasgi import HttpRequest, HttpRequestCallback, HttpResponse
 from bareutils import header, response_code
 import spnego
 
+from .constants import (
+    Protocol,
+    DEFAULT_PROTOCOL,
+    DEFAULT_CONTEXT_KEY,
+    DEFAULT_SERVICE,
+    DEFAULT_SESSION_DURATION
+)
 from .session_manager import SessionManager, Session
 
 LOGGER = logging.getLogger(__name__)
@@ -78,12 +85,12 @@ class SPNEGOMiddleware:
     def __init__(
             self,
             *,
-            protocol: Literal[b'Negotiate', b'NTLM'] = b'Negotiate',
-            service: str = 'HTTP',
+            protocol: Protocol = DEFAULT_PROTOCOL,
+            service: str = DEFAULT_SERVICE,
             hostname: Optional[str] = None,
-            session_duration: timedelta = timedelta(hours=1),
+            session_duration: timedelta = DEFAULT_SESSION_DURATION,
             forbid_unauthenticated: bool = True,
-            context_key: str = 'sspi'
+            context_key: str = DEFAULT_CONTEXT_KEY
     ) -> None:
         """Initialise the SPNEGO middleware.
 

@@ -19,9 +19,7 @@ pip install bareasgi-sspi
 
 The following program uses the
 [Hypercorn](https://pgjones.gitlab.io/hypercorn/)
-ASGI server, and the
-[bareASGI](https://github.com/rob-blackbourn/bareASGI)
-ASGI framework.
+ASGI server.
 
 ```python
 import asyncio
@@ -33,7 +31,7 @@ from bareutils import text_writer
 from hypercorn import Config
 from hypercorn.asyncio import serve
 
-from bareasgi_sspi import SPNEGOMiddleware, SSPIDetails
+from bareasgi_sspi import add_sspi_middleware, SSPIDetails
 
 # A callback to display the results of the SSPI middleware.
 async def http_request_callback(request: HttpRequest) -> HttpResponse:
@@ -53,16 +51,17 @@ async def http_request_callback(request: HttpRequest) -> HttpResponse:
 
 
 async def main_async():
-    # Create the middleware. Change the protocol from Negotiate to NTLM,
+    # Make the ASGI application using the middleware.
+    app = Application()
+    app.http_router.add({'GET'}, '/', http_request_callback)
+
+    # Add the middleware. Change the protocol from Negotiate to NTLM,
     # and allow unauthenticated requests to pass through.
-    sspi_middleware = SPNEGOMiddleware(
+    add_sspi_middleware(
+        app,
         protocol=b'NTLM',
         forbid_unauthenticated=False
     )
-
-    # Make the ASGI application using the middleware.
-    app = Application(middlewares=[sspi_middleware])
-    app.http_router.add({'GET'}, '/', http_request_callback)
 
     # Start the ASGI server.
     config = Config()
