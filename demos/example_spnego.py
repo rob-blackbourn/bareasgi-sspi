@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from typing import Optional
 
 from bareasgi import Application, HttpRequest, HttpResponse
 from bareutils import text_writer
