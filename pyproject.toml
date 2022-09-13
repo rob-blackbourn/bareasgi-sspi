@@ -7,7 +7,6 @@ classifiers = [
     "Environment :: Web Environment",
     "Environment :: Win32 (MS Windows)",
     "Framework :: AsyncIO",
-    "Framework :: bareASGI",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: Microsoft :: Windows",
@@ -15,7 +14,7 @@ classifiers = [
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
-    "Topic :: Internet :: WWW/HTTP :: ASGI :: Middleware",
+    "Topic :: Internet :: WWW/HTTP",
     "Topic :: Security",
     "Typing :: Typed"
 ]
