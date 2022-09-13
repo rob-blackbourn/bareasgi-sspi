@@ -3,16 +3,16 @@
 from datetime import timedelta
 from typing import Optional
 
-from bareasgi import Application
+from bareasgi import Application, HttpRequest
 
 from .constants import (
     Protocol,
     DEFAULT_PROTOCOL,
-    DEFAULT_CONTEXT_KEY,
+    SSPI_CONTEXT_KEY,
     DEFAULT_SERVICE,
     DEFAULT_SESSION_DURATION
 )
-from .spnego_middleware import SPNEGOMiddleware
+from .spnego_middleware import SPNEGOMiddleware, SSPIDetails
 
 
 def add_sspi_middleware(
@@ -23,7 +23,7 @@ def add_sspi_middleware(
     hostname: Optional[str] = None,
     session_duration: timedelta = DEFAULT_SESSION_DURATION,
     forbid_unauthenticated: bool = True,
-    context_key: str = DEFAULT_CONTEXT_KEY
+    context_key: str = SSPI_CONTEXT_KEY
 ) -> Application:
     """Add SSPI middleware.
 
@@ -58,3 +58,20 @@ def add_sspi_middleware(
     app.middlewares.append(sspi_middleware)
 
     return app
+
+
+def sspi_details(
+        request: HttpRequest,
+        *,
+        context_key: str = SSPI_CONTEXT_KEY
+) -> Optional[SSPIDetails]:
+    """Get the SSPI details from the HTTP request object.
+
+    Args:
+        request (HttpRequest): An HTTP request.
+        context_key (str, optional): The context key. Defaults to SSPI_CONTEXT_KEY.
+
+    Returns:
+        Optional[SSPIDetails]: The SSPI details, if any.
+    """
+    return request.context[context_key]

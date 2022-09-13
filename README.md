@@ -31,13 +31,13 @@ from bareutils import text_writer
 from hypercorn import Config
 from hypercorn.asyncio import serve
 
-from bareasgi_sspi import add_sspi_middleware, SSPIDetails
+from bareasgi_sspi import add_sspi_middleware, sspi_details
 
 # A callback to display the results of the SSPI middleware.
 async def http_request_callback(request: HttpRequest) -> HttpResponse:
     # Get the details from the request context request['sspi']. Note if
     # authentication failed this might be absent or empty.
-    sspi: Optional[SSPIDetails] = request.context.get('sspi')
+    sspi = sspi_details(request)
     client_principal = (
         sspi['client_principal']
         if sspi is not None
@@ -87,7 +87,8 @@ Optional arguments include:
 ### Results
 
 If the authentication is successful the SSPI details are added to the
-`context` dictionary of the HttpRequest object with the key `"sspi"`.
+`context` dictionary of the HttpRequest object with the key `"sspi"`
+(if not overridden). There is a helper method `sspi_details` for this.
 
 The following properties are set:
 

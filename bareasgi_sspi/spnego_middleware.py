@@ -19,7 +19,7 @@ import spnego
 from .constants import (
     Protocol,
     DEFAULT_PROTOCOL,
-    DEFAULT_CONTEXT_KEY,
+    SSPI_CONTEXT_KEY,
     DEFAULT_SERVICE,
     DEFAULT_SESSION_DURATION
 )
@@ -90,7 +90,7 @@ class SPNEGOMiddleware:
             hostname: Optional[str] = None,
             session_duration: timedelta = DEFAULT_SESSION_DURATION,
             forbid_unauthenticated: bool = True,
-            context_key: str = DEFAULT_CONTEXT_KEY
+            context_key: str = SSPI_CONTEXT_KEY
     ) -> None:
         """Initialise the SPNEGO middleware.
 
