@@ -7,6 +7,9 @@ on Windows.
 
 The implementation uses the [pyspnego](https://github.com/jborean93/pyspnego) package.
 
+There is also a generic ASGI server middleware implementation in the package
+[jetblack-asgi-sspi](https://github.com/rob-blackbourn/jetblack-asgi-sspi).
+
 ## Installation
 
 Install from the pie store.
