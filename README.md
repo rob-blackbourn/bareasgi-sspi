@@ -86,6 +86,7 @@ Optional arguments include:
 * `session_duration` (`timedelta`, optional): The duration of a session. Defaults to 1 hour.
 * `forbid_unauthenticated` (`bool`): If true, and authentication fails, send 403 (Forbidden). Otherwise handle the request unauthenticated.
 * `context_key` (`str`, optional): The key used in the request context. Defaults to `sspi`.
+* `whitelist` (`Sequence[str]`, optional): Paths not to authenticate. Defaults to `()`.
 
 ### Results
 

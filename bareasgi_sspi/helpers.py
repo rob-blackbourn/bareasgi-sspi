@@ -1,7 +1,7 @@
 """Helpers"""
 
 from datetime import timedelta
-from typing import Optional
+from typing import Optional, Sequence
 
 from bareasgi import Application, HttpRequest
 
@@ -23,7 +23,8 @@ def add_sspi_middleware(
     hostname: Optional[str] = None,
     session_duration: timedelta = DEFAULT_SESSION_DURATION,
     forbid_unauthenticated: bool = True,
-    context_key: str = SSPI_CONTEXT_KEY
+    context_key: str = SSPI_CONTEXT_KEY,
+    whitelist: Sequence[str] = ()
 ) -> Application:
     """Add SSPI middleware.
 
@@ -42,6 +43,8 @@ def add_sspi_middleware(
         context_key (str, optional): The name of the key that will be used
             to store the data in the HttpRequest context.
             Defaults to 'sspi'.
+        whitelist (Sequence[str], optional): Paths not requiring authentication.
+            Defaults to ().
 
     Returns:
         Application: The ASGI application.
@@ -52,7 +55,8 @@ def add_sspi_middleware(
         hostname=hostname,
         session_duration=session_duration,
         forbid_unauthenticated=forbid_unauthenticated,
-        context_key=context_key
+        context_key=context_key,
+        whitelist=whitelist
     )
 
     app.middlewares.append(sspi_middleware)

@@ -8,6 +8,7 @@ from typing import (
     List,
     Literal,
     Optional,
+    Sequence,
     Tuple,
     TypedDict
 )
@@ -90,7 +91,8 @@ class SPNEGOMiddleware:
             hostname: Optional[str] = None,
             session_duration: timedelta = DEFAULT_SESSION_DURATION,
             forbid_unauthenticated: bool = True,
-            context_key: str = SSPI_CONTEXT_KEY
+            context_key: str = SSPI_CONTEXT_KEY,
+            whitelist: Sequence[str] = ()
     ) -> None:
         """Initialise the SPNEGO middleware.
 
@@ -108,10 +110,13 @@ class SPNEGOMiddleware:
             context_key (str, optional): The name of the key that will be used
                 to store the data in the HttpRequest context.
                 Defaults to 'sspi'.
+            whitelist (Sequence[str], optional): Paths not requiring
+                authentication. Defaults to ().
         """
         self.protocol = protocol
         self.forbid_unauthenticated = forbid_unauthenticated
         self.context_key = context_key
+        self.whitelist = whitelist
 
         if hostname is None:
             hostname = socket.gethostname()
@@ -241,6 +246,12 @@ class SPNEGOMiddleware:
             session['status'] = 'rejected'
             return await self._handle_rejected(session, request, handler)
 
+    def _is_whitelisted(self, path: str) -> bool:
+        for path_prefix in self.whitelist:
+            if path.startswith(path_prefix):
+                return True
+        return False
+
     async def _handle_rejected(
             self,
             session: SSPISession,
@@ -252,11 +263,25 @@ class SPNEGOMiddleware:
         else:
             return await self._handle_accepted(session, request, handler)
 
+    async def _handle_whitelisted(
+            self,
+            request: HttpRequest,
+            handler: HttpRequestCallback
+    ) -> HttpResponse:
+        LOGGER.debug(
+            'The path is whitelisted: "%s"',
+            request.scope['path']
+        )
+        return await handler(request)
+
     async def __call__(
             self,
             request: HttpRequest,
             handler: HttpRequestCallback
     ) -> HttpResponse:
+        if self._is_whitelisted(request.scope['path']):
+            return await self._handle_whitelisted(request, handler)
+
         try:
             session, headers = self._session_manager.get_session(request)
 
