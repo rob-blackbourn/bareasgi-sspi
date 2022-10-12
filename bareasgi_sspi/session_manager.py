@@ -43,19 +43,33 @@ class SessionManager(Generic[T], metaclass=ABCMeta):
     a session cache.
     """
 
-    def __init__(self, session_duration: timedelta) -> None:
+    def __init__(
+            self,
+            session_duration: timedelta,
+            cookie_name: Optional[str] = None,
+            domain: Optional[str] = None,
+            path: Optional[str] = None
+    ) -> None:
         """Initialize the session manager.
 
         Args:
             session_duration (timedelta): The time after which a session
                 will expire.
+            cookie_name (Optional[str], optional): The cookie name. Defaults to
+                None.
+            domain (Optional[str], optional): The cookie domain. Defaults to
+                None.
+            path (Optional[str], optional): The cookie path. Defaults to None.
         """
         self.session_duration = session_duration
+        self.cookie_name = (
+            cookie_name.encode() if cookie_name is not None
+            else secrets.token_urlsafe().encode('ascii')
+        )
+        self.domain = domain.encode() if domain else None
+        self.path = path.encode() if path else None
 
         self._sessions: Dict[bytes, T] = {}
-        # The name of the cookie is only relevant for the life of the session
-        # manager.
-        self._session_cookie_name = secrets.token_urlsafe().encode('ascii')
 
     def _get_session_key_from_cookie(
         self,
@@ -63,7 +77,7 @@ class SessionManager(Generic[T], metaclass=ABCMeta):
     ) -> Optional[bytes]:
         cookies = header.cookie(request.scope['headers'])
         session_cookie = cookies.get(
-            self._session_cookie_name,
+            self.cookie_name,
             [None]  # type: ignore
         )
         return next(iter(session_cookie))
@@ -98,9 +112,12 @@ class SessionManager(Generic[T], metaclass=ABCMeta):
         self._sessions[session_key] = session
 
         set_cookie = encode_set_cookie(
-            self._session_cookie_name,
+            self.cookie_name,
             session_key,
-            expires=expiry
+            expires=expiry,
+            path=self.path,
+            domain=self.domain,
+            http_only=True
         )
 
         return session, set_cookie
