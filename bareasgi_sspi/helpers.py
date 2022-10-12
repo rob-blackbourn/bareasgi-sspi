@@ -16,15 +16,18 @@ from .spnego_middleware import SPNEGOMiddleware, SSPIDetails
 
 
 def add_sspi_middleware(
-    app: Application,
-    *,
-    protocol: Protocol = DEFAULT_PROTOCOL,
-    service: str = DEFAULT_SERVICE,
-    hostname: Optional[str] = None,
-    session_duration: timedelta = DEFAULT_SESSION_DURATION,
-    forbid_unauthenticated: bool = True,
-    context_key: str = SSPI_CONTEXT_KEY,
-    whitelist: Sequence[str] = ()
+        app: Application,
+        *,
+        protocol: Protocol = DEFAULT_PROTOCOL,
+        service: str = DEFAULT_SERVICE,
+        hostname: Optional[str] = None,
+        session_duration: timedelta = DEFAULT_SESSION_DURATION,
+        cookie_name: Optional[str] = None,
+        domain: Optional[str] = None,
+        path: Optional[str] = None,
+        forbid_unauthenticated: bool = True,
+        context_key: str = SSPI_CONTEXT_KEY,
+        whitelist: Sequence[str] = ()
 ) -> Application:
     """Add SSPI middleware.
 
@@ -37,6 +40,10 @@ def add_sspi_middleware(
         session_duration (timedelta, optional): The duration of a session
             before re-authentication is performed. Defaults to
             `timedelta(hours=1)`.
+        cookie_name (Optional[str], optional): The cookie name. Defaults to
+            None.
+        domain (Optional[str], optional): The cookie domain. Defaults to None.
+        path (Optional[str], optional): The cookie path. Defaults to None.
         forbid_unauthenticated (bool, optional): If true, 403 (Forbidden) is
             sent if authentication fails. If false the request is handled,
             but no authentication details are added. Defaults to True.
@@ -54,6 +61,9 @@ def add_sspi_middleware(
         service=service,
         hostname=hostname,
         session_duration=session_duration,
+        cookie_name=cookie_name,
+        domain=domain,
+        path=path,
         forbid_unauthenticated=forbid_unauthenticated,
         context_key=context_key,
         whitelist=whitelist

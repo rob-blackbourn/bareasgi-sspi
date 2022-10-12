@@ -50,11 +50,14 @@ class SPNEGOSessionManager(SessionManager[SSPISession]):
     def __init__(
             self,
             session_duration: timedelta,
+            cookie_name: Optional[str],
+            domain: Optional[str],
+            path: Optional[str],
             hostname: str,
             service: str,
             protocol: str
     ) -> None:
-        super().__init__(session_duration)
+        super().__init__(session_duration, cookie_name, domain, path)
         self.hostname = hostname
         self.service = service
         self.protocol = protocol
@@ -90,9 +93,12 @@ class SPNEGOMiddleware:
             service: str = DEFAULT_SERVICE,
             hostname: Optional[str] = None,
             session_duration: timedelta = DEFAULT_SESSION_DURATION,
+            cookie_name: Optional[str] = None,
+            domain: Optional[str] = None,
+            path: Optional[str] = None,
             forbid_unauthenticated: bool = True,
             context_key: str = SSPI_CONTEXT_KEY,
-            whitelist: Sequence[str] = ()
+            whitelist: Sequence[str] = (),
     ) -> None:
         """Initialise the SPNEGO middleware.
 
@@ -104,6 +110,11 @@ class SPNEGOMiddleware:
             session_duration (timedelta, optional): The duration of a session
                 before re-authentication is performed. Defaults to
                 `timedelta(hours=1)`.
+            cookie_name (Optional[str], optional): The cookie name. Defaults to
+                None.
+            domain (Optional[str], optional): The cookie domain. Defaults to
+                None.
+            path (Optional[str], optional): The cookie path. Defaults to None.
             forbid_unauthenticated (bool, optional): If true, 403 (Forbidden) is
                 sent if authentication fails. If false the request is handled,
                 but no authentication details are added. Defaults to True.
@@ -123,6 +134,9 @@ class SPNEGOMiddleware:
 
         self._session_manager = SPNEGOSessionManager(
             session_duration,
+            cookie_name,
+            domain,
+            path,
             hostname,
             service,
             self.protocol.decode('ascii')
@@ -202,7 +216,7 @@ class SPNEGOMiddleware:
                 server_auth.client_principal
             )
             session['status'] = 'accepted'
-            session['sspi'] = {
+            session['sspi'] = {  # type: ignore
                 'client_principal': server_auth.client_principal,
                 'protocol': server_auth.protocol,
                 'negotiated_protocol': server_auth.negotiated_protocol,
